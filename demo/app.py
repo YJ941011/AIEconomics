@@ -21,7 +21,7 @@ else:
 if st.sidebar.button("手動刷新數據"):
     st.cache_data.clear()
 
-# 1. 抓取 FRED 數據 (設快取 1 小時)
+# 1. 抓取 FRED 數據 (新增日本 10 年期國債殖利率，設快取 1 小時)
 @st.cache_data(ttl=3600)
 def get_fred_data(api_key):
     fred = Fred(api_key=api_key)
@@ -29,22 +29,31 @@ def get_fred_data(api_key):
         "CPI 物價指數": fred.get_series("CPIAUCSL"),
         "10年期美債殖利率": fred.get_series("DGS10"),
         "美國失業率": fred.get_series("UNRATE"),
-        "聯邦基金利率": fred.get_series("FEDFUNDS")
+        "聯邦基金利率": fred.get_series("FEDFUNDS"),
+        "日本10年期國債殖利率": fred.get_series("IRLTLT01JPM156N")  # 新增：日本 10 年期公債殖利率
     }
     df = pd.DataFrame(data).ffill().tail(365)
     return df
 
-# 2. 抓取 Market 數據 (設快取 10 分鐘)
+# 2. 抓取 Market 數據 (新增黃金現貨價格，設快取 10 分鐘)
 @st.cache_data(ttl=600)
 def get_market_data():
     tickers = {
         "S&P 500": "^GSPC",
         "台灣加權指數": "^TWII",
         "布蘭特原油": "BZ=F",
-        "美元/台幣匯率": "TWD=X"
+        "美元/台幣匯率": "TWD=X",
+        "黃金現貨價格": "GC=F"  # 新增：黃金期貨/現貨
     }
-    df = yf.download(list(tickers.values()), period="1y")["Close"]
-    df.rename(columns={v: k for k, v in tickers.items()}, inplace=True)
+    raw_df = yf.download(list(tickers.values()), period="1y")
+    
+    # 處理新版 yfinance 的 MultiIndex 欄位結構
+    if isinstance(raw_df.columns, pd.MultiIndex):
+        df = raw_df["Close"]
+    else:
+        df = raw_df[["Close"]] if "Close" in raw_df.columns else raw_df
+        
+    df = df.rename(columns={v: k for k, v in tickers.items()})
     return df
 
 # 頁面渲染邏輯
@@ -53,9 +62,9 @@ if fred_key:
         macro_df = get_fred_data(fred_key)
         market_df = get_market_data()
 
-        # 第一區塊：核心 KPI 卡片
+        # 第一區塊：核心 KPI 卡片 (擴充為 5 欄，讓版面左右平均對齊)
         st.subheader("📊 關鍵總體經濟指標 (FRED)")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         latest_cpi = macro_df["CPI 物價指數"].dropna().iloc[-1]
         col1.metric("CPI 物價指數", f"{latest_cpi:.1f}")
@@ -70,7 +79,11 @@ if fred_key:
         latest_fed = macro_df["聯邦基金利率"].dropna().iloc[-1]
         col4.metric("聯邦基金利率", f"{latest_fed:.2f}%")
 
-        # 第二區塊：互動式圖表
+        latest_jp = macro_df["日本10年期國債殖利率"].dropna().iloc[-1]
+        jp_prev = macro_df["日本10年期國債殖利率"].dropna().iloc[-2]
+        col5.metric("日本10年國債", f"{latest_jp:.2f}%", f"{latest_jp - jp_prev:+.2f}%")
+
+        # 第二區塊：互動式圖表 (選項會自動抓取更新後的 DataFrame 欄位)
         st.write("---")
         st.subheader("📈 市場走勢與總體指標折線圖")
         
