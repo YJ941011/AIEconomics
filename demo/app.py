@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import yfinance as yf
 from fredapi import Fred
-from google import genai  # 新增：導入新版 Google GenAI SDK
+from google import genai
 
 # 頁面基本配置
 st.set_page_config(page_title="總體經濟與金融即時儀表板", layout="wide")
@@ -19,7 +19,7 @@ if "FRED_API_KEY" in st.secrets:
 else:
     fred_key = st.sidebar.text_input("請輸入你的 FRED API Key:", type="password")
 
-# 2. Gemini API Key 設定 (新增)
+# 2. Gemini API Key 設定
 if "GEMINI_API_KEY" in st.secrets:
     gemini_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("已自動讀取 Gemini API Key！")
@@ -121,7 +121,7 @@ if fred_key:
                 fig2.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="零軸 (倒掛分界)", annotation_position="bottom right")
             st.plotly_chart(fig2, use_container_width=True)
 
-        # 第三區塊：AI 總體經濟摘要 (新增)
+        # 第三區塊：AI 總體經濟摘要
         st.write("---")
         st.subheader("🤖 AI 智能總體經濟短評")
         
@@ -131,7 +131,6 @@ if fred_key:
             else:
                 with st.spinner("Gemini 正在分析當前全球總經數據並撰寫短評..."):
                     try:
-                        # 收集最新數據作為上下文
                         latest_jp = macro_df["日本10年期國債殖利率"].dropna().iloc[-1]
                         
                         prompt = f"""
@@ -148,7 +147,6 @@ if fred_key:
                         - 日本10年期國債殖利率: {latest_jp:.2f}%
                         """
                         
-                        # 使用最新 google-genai SDK 呼叫 Gemini
                         client = genai.Client(api_key=gemini_key)
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
