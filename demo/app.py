@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import yfinance as yf
 from fredapi import Fred
-from google import genai  # 新增：導入新版 Google GenAI SDK
+from google import genai  # 導入新版 Google GenAI SDK
 
 # 頁面基本配置
 st.set_page_config(page_title="總體經濟與金融即時儀表板", layout="wide")
@@ -19,7 +19,7 @@ if "FRED_API_KEY" in st.secrets:
 else:
     fred_key = st.sidebar.text_input("請輸入你的 FRED API Key:", type="password")
 
-# 2. Gemini API Key 設定 (新增)
+# 2. Gemini API Key 設定
 if "GEMINI_API_KEY" in st.secrets:
     gemini_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("已自動讀取 Gemini API Key！")
@@ -121,46 +121,10 @@ if fred_key:
                 fig2.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="零軸 (倒掛分界)", annotation_position="bottom right")
             st.plotly_chart(fig2, use_container_width=True)
 
-        # 第三區塊：AI 總體經濟摘要 (新增)
+        # 第三區塊：AI 總體經濟摘要
         st.write("---")
         st.subheader("🤖 AI 智能總體經濟短評")
         
         if st.button("產生 AI 總體經濟摘要"):
             if not gemini_key:
-                st.error("請先在左側欄位輸入您的 Gemini API Key，或設定於 Streamlit Secrets 中！")
-            else:
-                with st.spinner("Gemini 正在分析當前全球總經數據並撰寫短評..."):
-                    try:
-                        # 收集最新數據作為上下文
-                        latest_jp = macro_df["日本10年期國債殖利率"].dropna().iloc[-1]
-                        
-                        prompt = f"""
-                        你是一位專業的華爾街總體經濟分析師。請根據以下最新的總體經濟數據，撰寫一份約 200 字的精簡市場短評。
-                        內容需包含：當前通膨與就業狀況、利率環境、美債殖利率曲線（是否倒掛）對市場的隱含意義。
-                        
-                        數據背景：
-                        - CPI 物價指數: {latest_cpi:.1f}
-                        - 10年期美債殖利率: {latest_rate10:.2f}%
-                        - 2年期美債殖利率: {latest_rate2:.2f}%
-                        - 10Y-2Y 美債利差: {latest_spread:.2f}% {'(發生倒掛)' if latest_spread < 0 else '(未倒掛)'}
-                        - 美國失業率: {latest_unemp:.1f}%
-                        - 聯邦基金利率: {latest_fed:.2f}%
-                        - 日本10年期國債殖利率: {latest_jp:.2f}%
-                        """
-                        
-                        # 使用最新 google-genai SDK 呼叫 Gemini
-                        client = genai.Client(api_key=gemini_key)
-                        response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=prompt,
-                        )
-                        
-                        st.info(response.text)
-                        
-                    except Exception as ai_e:
-                        st.error(f"AI 摘要產生失敗，請檢查 Gemini API Key 是否正確。錯誤訊息: {ai_e}")
-
-    except Exception as e:
-        st.error(f"數據讀取失敗，請確認 FRED API Key 是否正確。錯誤訊息: {e}")
-else:
-    st.info("👈 請在左側輸入您的 FRED API Key 以開啟儀表板。")
+                st.error("請先在左側欄
