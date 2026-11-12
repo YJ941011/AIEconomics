@@ -1,173 +1,226 @@
-streamlit
-pandas
-plotly
-yfinance
-fredapi
-feedparser
-google-generativeai
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import yfinance as yf
-from fredapi import Fred
-import feedparser
-import google.generativeai as genai
-from urllib.parse import quote  # 解決 URL 空白字元轉碼問題
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI與經濟分析 - 專題應用與 Streamlit 自動化儀表板部署指南</title>
+    <style>
+        :root {
+            --primary-color: #0f172a;
+            --secondary-color: #2563eb;
+            --accent-color: #d97706;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-color: #334155;
+            --border-color: #e2e8f0;
+            --code-bg: #1e293b;
+        }
 
-# ==========================================
-# 1. 頁面配置與側邊欄金鑰設定
-# ==========================================
-st.set_page_config(page_title="總體經濟、金融與 NLP 市場情緒儀表板", layout="wide")
-st.title("🌐 總體經濟、金融指標與 AI 輿論情緒即時儀表板")
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.75;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 24px;
+        }
 
-st.sidebar.header("⚙️ 設定與金鑰")
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
 
-# 1.1 檢查 FRED API Key
-if "FRED_API_KEY" in st.secrets:
-    fred_key = st.secrets["FRED_API_KEY"]
-    st.sidebar.success("已自動讀取 FRED API Key！")
-else:
-    fred_key = st.sidebar.text_input("請輸入 FRED API Key:", type="password")
+        h1 {
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--secondary-color);
+            padding-bottom: 12px;
+            margin-top: 0;
+            font-size: 1.8rem;
+        }
 
-# 1.2 檢查 Gemini API Key (NLP 情緒分析用)
-gemini_key = None
-if "GEMINI_API_KEY" in st.secrets:
-    gemini_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=gemini_key)
-    st.sidebar.success("已自動讀取 Gemini API Key！")
-else:
-    gemini_input = st.sidebar.text_input("請輸入 Gemini API Key (情緒分析用):", type="password")
-    if gemini_input:
-        gemini_key = gemini_input
-        genai.configure(api_key=gemini_key)
+        h2 {
+            color: var(--secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            margin-top: 36px;
+            font-size: 1.4rem;
+        }
 
-if st.sidebar.button("手動刷新數據"):
-    st.cache_data.clear()
+        h3 {
+            color: var(--primary-color);
+            margin-top: 24px;
+            font-size: 1.15rem;
+        }
 
-# ==========================================
-# 2. 數據抓取函式 (FRED, yfinance, RSS 新聞)
-# ==========================================
-@st.cache_data(ttl=3600)
-def get_fred_data(api_key):
-    fred = Fred(api_key=api_key)
-    data = {
-        "CPI 物價指數": fred.get_series("CPIAUCSL"),
-        "10年期美債殖利率": fred.get_series("DGS10"),
-        "美國失業率": fred.get_series("UNRATE"),
-        "聯邦基金利率": fred.get_series("FEDFUNDS")
-    }
-    df = pd.DataFrame(data).ffill().tail(365)
-    return df
+        p, li { font-size: 1rem; }
+        ul, ol { padding-left: 24px; }
+        li { margin-bottom: 8px; }
 
-@st.cache_data(ttl=600)
-def get_market_data():
-    tickers = {
-        "S&P 500": "^GSPC",
-        "台灣加權指數": "^TWII",
-        "布蘭特原油": "BZ=F",
-        "美元/台幣匯率": "TWD=X"
-    }
-    df = yf.download(list(tickers.values()), period="1y")["Close"]
-    df.rename(columns={v: k for k, v in tickers.items()}, inplace=True)
-    return df
+        .step-box {
+            background-color: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--secondary-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
 
-@st.cache_data(ttl=1800)
-def fetch_google_news(keyword="Federal Reserve Inflation"):
-    # 使用 quote 轉碼，確保包含空白或特殊字元之關鍵字連線成功
-    safe_keyword = quote(keyword)
-    url = f"https://news.google.com/rss/search?q={safe_keyword}&hl=en-US"
-    feed = feedparser.parse(url)
-    return [entry.title for entry in feed.entries[:8]]
+        .warn-box {
+            background-color: #fffbeb;
+            border-left: 4px solid var(--accent-color);
+            padding: 16px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
 
-# ==========================================
-# 3. 頁面渲染邏輯
-# ==========================================
-if fred_key:
-    try:
-        macro_df = get_fred_data(fred_key)
-        market_df = get_market_data()
+        pre {
+            background-color: var(--code-bg);
+            color: #f8fafc;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9rem;
+        }
 
-        # 第一區塊：核心總經 KPI 卡片
-        st.subheader("📊 關鍵總體經濟指標 (FRED)")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        latest_cpi = macro_df["CPI 物價指數"].dropna().iloc[-1]
-        col1.metric("CPI 物價指數", f"{latest_cpi:.1f}")
-        
-        latest_rate = macro_df["10年期美債殖利率"].dropna().iloc[-1]
-        rate_prev = macro_df["10年期美債殖利率"].dropna().iloc[-2]
-        col2.metric("10年美債殖利率", f"{latest_rate:.2f}%", f"{latest_rate - rate_prev:+.2f}%")
-        
-        latest_unemp = macro_df["美國失業率"].dropna().iloc[-1]
-        col3.metric("美國失業率", f"{latest_unemp:.1f}%")
-        
-        latest_fed = macro_df["聯邦基金利率"].dropna().iloc[-1]
-        col4.metric("聯邦基金利率", f"{latest_fed:.2f}%")
+        code {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
 
-        st.write("---")
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+        }
 
-        # 第二區塊：分頁儀表板
-        tab1, tab2, tab3 = st.tabs([
-            "📈 金融市場走勢 (yfinance)", 
-            "🏛️ 總體經濟趨勢 (FRED)", 
-            "📰 NLP 市場新聞與鷹鴿情緒分析"
-        ])
-        
-        # 頁籤 1: 金融市場
-        with tab1:
-            market_choice = st.selectbox("選擇金融市場標的：", market_df.columns)
-            fig1 = px.line(market_df, y=market_choice, title=f"{market_choice} 近一年走勢")
-            st.plotly_chart(fig1, use_container_width=True)
-            
-        # 頁籤 2: 總體經濟
-        with tab2:
-            macro_choice = st.selectbox("選擇總體經濟指標：", macro_df.columns)
-            fig2 = px.line(macro_df, y=macro_choice, title=f"{macro_choice} 近一年走勢")
-            st.plotly_chart(fig2, use_container_width=True)
+        .table-container { overflow-x: auto; margin: 24px 0; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; }
+        th, td { border: 1px solid var(--border-color); padding: 12px 16px; }
+        th { background-color: #f1f5f9; color: var(--primary-color); font-weight: 600; }
+        tr:nth-child(even) { background-color: #f8fafc; }
 
-        # 頁籤 3: NLP 市場新聞與情緒分析
-        with tab3:
-            st.subheader("📰 即時財經新聞與 LLM 鷹鴿派情緒分析")
-            
-            search_kw = st.text_input("🔍 輸入新聞關鍵字 (預設: Federal Reserve Inflation):", value="Federal Reserve Inflation")
-            news_titles = fetch_google_news(search_kw)
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #64748b;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
 
-            nlp_col1, nlp_col2 = st.columns([1, 1])
+<div class="container">
+    <h1>AI與經濟分析 - 課堂教學重點與 API 自動化部署指南</h1>
+    <p><strong>授課教師：</strong>Bin-Tzong Chie (池秉聰) 教授 | <strong>課程單元：</strong>總體經濟資料庫 API 串接與 Streamlit 儀表板開發</p>
 
-            with nlp_col1:
-                st.markdown("### 📌 最新財經新聞標題 (RSS)")
-                if news_titles:
-                    for i, title in enumerate(news_titles, 1):
-                        st.write(f"**{i}.** {title}")
-                else:
-                    st.warning("查無相關新聞標題，請嘗試更換關鍵字。")
+    <h2>一、 課堂主題：從「靜態下載」跨越到「動態 API 自動化」</h2>
+    <p>在過去的分析作業中，大家都是手動到網站下載 CSV 或 Excel 檔案進行整理。本單元的核心目標，是帶領大家學會使用 <strong>API (Application Programming Interface)</strong>，讓程式碼自動跟資料庫溝通，開啓網頁即呈現最新數據。</p>
 
-            with nlp_col2:
-                st.markdown("### 🤖 Gemini AI 鷹鴿派與情緒打分")
-                if gemini_key:
-                    if st.button("🚀 開始分析新聞市場情緒", type="primary"):
-                        if news_titles:
-                            with st.spinner("Gemini 正在剖析文本立場與鷹鴿情緒中..."):
-                                try:
-                                    news_text = "\n".join([f"- {t}" for t in news_titles])
-                                    prompt = f"你是一位專業總體經濟分析師。請分析以下 8 條新聞標題：\n{news_text}\n\n" \
-                                             f"請以繁體中文輸出結構化報告：\n" \
-                                             f"1. 整體市場情緒分數 (0~100)\n" \
-                                             f"2. 貨幣政策立場判定 (鷹派/鴿派/中立)\n" \
-                                             f"3. 重點分析與逐條評分表格 (Markdown Format)"
-                                    
-                                    # 使用最新 Gemini 3.5 Flash 模型
-                                    model = genai.GenerativeModel("gemini-3.5-flash")
-                                    response = model.generate_content(prompt)
-                                    st.markdown(response.text)
-                                except Exception as e:
-                                    st.error(f"AI 分析時發生錯誤: {e}")
-                        else:
-                            st.warning("尚無新聞數據可供分析。")
-                else:
-                    st.warning("👈 請在側邊欄輸入 Gemini API Key（或設定在 Secrets 中）以啟用 AI 文本情緒分析功能。")
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>資料類別</th>
+                    <th>推薦 API 來源</th>
+                    <th>是否需 API Key</th>
+                    <th>涵蓋數據內容</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>總體經濟</strong></td>
+                    <td>FRED API (St. Louis Fed)</td>
+                    <td>需申請 (免費 32 位元 Key)</td>
+                    <td>美國 CPI、失業率、聯邦基金利率、10年期公債殖利率</td>
+                </tr>
+                <tr>
+                    <td><strong>國際匯率</strong></td>
+                    <td>Frankfurter API</td>
+                    <td>免 API Key (原生支援 CORS)</td>
+                    <td>EUR, JPY, GBP, CAD 等主要貨幣即時與歷史匯率</td>
+                </tr>
+                <tr>
+                    <td><strong>大宗商品/美股</strong></td>
+                    <td>Alpha Vantage / Yahoo Finance</td>
+                    <td>需申請 (免費 Key)</td>
+                    <td>WTI 原油、天然氣、黃金現貨價格與個股數據</td>
+                </tr>
+                <tr>
+                    <td><strong>財經新聞</strong></td>
+                    <td>NewsAPI</td>
+                    <td>需申請 (免費 Key)</td>
+                    <td>聯準會政策動態、CPI 通膨率即時新聞快訊</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 
-    except Exception as e:
-        st.error(f"數據讀取失敗，請確認 FRED API Key 是否正確。錯誤訊息: {e}")
-else:
-    st.info("👈 請在左側輸入您的 FRED API Key 以開啟儀表板。")
+    <h2>二、 部署流程四步驟：GitHub + Streamlit Community Cloud</h2>
+    
+    <div class="step-box">
+        <h3>1. 申請 FRED API Key</h3>
+        <ul>
+            <li>連線至 <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank">FRED API Key 申請頁面</a>。</li>
+            <li>使用 Google 帳號登入並點擊 Request API Key。</li>
+            <li>取得 32 位元的英文與數字混合金鑰（妥善保存，切勿硬編碼於前端）。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>2. Fork 老師的 GitHub 專案倉庫</h3>
+        <ul>
+            <li>開啟課程專案，點擊右上角 <strong>Fork</strong> 複製一份副本至個人 GitHub 帳號。</li>
+            <li>確認專案結構中的 <code>demo/app.py</code> 及 <code>requirements.txt</code>。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>3. 部署至 Streamlit Cloud</h3>
+        <ul>
+            <li>登入 <a href="https://streamlit.io/cloud" target="_blank">Streamlit Community Cloud</a>，授權連結 GitHub 帳號。</li>
+            <li>點擊 <strong>Create app</strong>，選擇剛才 Fork 的倉庫，路徑指定為 <code>demo/app.py</code> 並發布。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>4. 安全性設定 (Secrets 管理 API Key)</h3>
+        <p>為避免金鑰洩露，請點擊 Streamlit App 右下角 <code>Settings -> Secrets</code>，輸入以下設定：</p>
+        <pre><code># Streamlit Secrets 設定範例
+FRED_API_KEY = "你的32位元FRED金鑰"
+GEMINI_API_KEY = "你的Google_AI_Studio金鑰"</code></pre>
+    </div>
+
+    <h2>三、 進階功能提示詞 (Prompts) 與 Python 程式碼範例</h2>
+
+    <h3>提示詞 1：新增黃金與日本 10 年期國債殖利率</h3>
+    <pre><code>我想在目前的 Streamlit 儀表板中新增「黃金現貨價格」與「日本 10 年期國債殖利率」，請協助修改 app.py，結合 yfinance 與 FRED API 抓取資料並維持美觀排版。</code></pre>
+
+    <h3>提示詞 2：計算美債殖利率倒掛與警示燈號</h3>
+    <pre><code>請協助修改 Python 程式碼，使用 FRED API 計算「10年期美債殖利率 - 2年期美債殖利率」的利差。若利差小於 0，請在 Streamlit 儀表板上顯示紅色警示燈號，並繪製歷史利差摺線圖。</code></pre>
+
+    <div class="warn-box">
+        ⚠️ <strong>課堂資安與 Debug 警示：</strong>
+        <ul>
+            <li><strong>資安注意事項：</strong> API Key 視同提款機密碼！絕不可以隨意張貼在公開網頁或程式碼中。GitHub 會有自動掃描機制，若洩漏金鑰可能導致帳號遭暫停。</li>
+            <li><strong>Gemini SDK 版本問題：</strong> 呼叫 Google AI 寫總評時，若出現模型找不到或額度限制，請將程式碼中的模型名稱修飾為 <code>gemini-2.5-flash</code> 或 <code>gemini-3.8-flash</code>，並確認 <code>requirements.txt</code> 包含 <code>google-genai</code>。</li>
+        </ul>
+    </div>
+
+    <footer>
+        <p>© 2026 淡江大學經濟學系 Bin-Tzong Chie 教授 | AI與經濟分析 課程教學資源庫</p>
+    </footer>
+</div>
+
+</body>
+</html>
