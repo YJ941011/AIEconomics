@@ -1,3 +1,10 @@
+streamlit
+pandas
+plotly
+yfinance
+fredapi
+feedparser
+google-generativeai
 import streamlit as st
 import pandas as pd
 import plotly.express as px
